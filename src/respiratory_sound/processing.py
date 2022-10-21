@@ -1,36 +1,53 @@
 import os 
-
-import pandas as pd
 import numpy as np
 import librosa
 import librosa.display
-from pydub import AudioSegment
+from pyparsing import col
 from scipy import signal
 
 import utils
 
+import event_manager
 
 SAMPLING_RATE_DEFAULT = 4000
 
+FEATURE_NAME = ['rmse', 'chroma_stft1', 'chroma_stft2', 'chroma_stft3', 'chroma_stft4',
+       'chroma_stft5', 'chroma_stft6', 'chroma_stft7', 'chroma_stft8',
+       'chroma_stft9', 'chroma_stft10', 'chroma_stft11', 'chroma_stft12',
+       'spec_cent', 'spec_bw', 'rolloff', 'zcr', 'mfcc1', 'mfcc2', 'mfcc3',
+       'mfcc4', 'mfcc5', 'mfcc6', 'mfcc7', 'mfcc8', 'mfcc9', 'mfcc10',
+       'mfcc11', 'mfcc12', 'mfcc13', 'mfcc14', 'mfcc15', 'mfcc16', 'mfcc17', 'mfcc18',
+       'mfcc19','mfcc20', 'delta_mfcc1', 'delta_mfcc2', 'delta_mfcc3', 'delta_mfcc4',
+       'delta_mfcc5', 'delta_mfcc6', 'delta_mfcc7', 'delta_mfcc8',
+       'delta_mfcc9', 'delta_mfcc10', 'delta_mfcc11', 'delta_mfcc12',
+       'delta_mfcc13', 'delta_mfcc14', 'delta_mfcc15', 'delta_mfcc16',
+       'delta_mfcc17', 'delta_mfcc18', 'delta_mfcc19', 'delta_mfcc20',
+       'delta2_mfcc1', 'delta2_mfcc2', 'delta2_mfcc3', 'delta2_mfcc4',
+       'delta2_mfcc5', 'delta2_mfcc6', 'delta2_mfcc7', 'delta2_mfcc8',
+       'delta2_mfcc9', 'delta2_mfcc10', 'delta2_mfcc11', 'delta2_mfcc12',
+       'delta2_mfcc13', 'delta2_mfcc14', 'delta2_mfcc15', 'delta2_mfcc16',
+       'delta2_mfcc17', 'delta2_mfcc18', 'delta2_mfcc19', 'delta2_mfcc20']
+
+# extract data and info
+def get_list_recording(audio_folder):
+    list_files = []
+    for file in os.listdir(audio_folder):
+        if file.endswith('.wav'):
+            audio_file = file.split('.wav')[0]
+            list_files.append(audio_file)
+    return list_files
+
 def load_file_from_recording_name(audio_folder,audio_subject):
     audio_data_file = f'{audio_subject}.wav'
+    audio_text_file = f'{audio_subject}.txt'
     audio_event_file = f'{audio_subject}_events.txt'
     audio_data_file = os.path.join(audio_folder,audio_data_file)
+    audio_text_file = os.path.join(audio_folder,audio_text_file)
     audio_event_file = os.path.join(audio_folder,audio_event_file)
-    return audio_data_file, audio_event_file
+    return {'data':audio_data_file,
+            'event':audio_event_file,
+            'text':audio_text_file}
     
-def get_info_from_file(file):
-    audio_info = dict()
-    audio_segment = AudioSegment.from_file(file)
-    audio_info.update({'n_channel': audio_segment.channels})
-    audio_info.update({'sample_width': audio_segment.sample_width})
-    audio_info.update({'fs': audio_segment.frame_rate})
-    audio_info.update({'frame_width': audio_segment.frame_width})
-    audio_info.update({'length (ms)': len(audio_segment)})
-    audio_info.update({'n_frames': audio_segment.frame_count()})
-    audio_info.update({'intensity': audio_segment.dBFS})
-    return audio_info
-
 def extract_data_from_file(file,fs= SAMPLING_RATE_DEFAULT):
     x_data, sr = librosa.load(file, sr=fs)
     audio_data = {
@@ -40,19 +57,7 @@ def extract_data_from_file(file,fs= SAMPLING_RATE_DEFAULT):
     audio_data['fs'] = sr
     return audio_data
 
-def add_event_to_data(data,event_file):
-    try:
-        df_label = pd.read_csv(event_file,delimiter='\t',header=None)
-        df_label.columns = ['start','end','label']
-        df_label['label'] = df_label['label'].map({'wheeze':1,'crackle':2})
-        data['label'] = np.zeros_like(data['time'])
-        for i in range(df_label.shape[0]):
-            index = np.where((data['time'] >=df_label['start'].iloc[i]) & (data['time'] <=df_label['end'].iloc[i]))[0]
-            data['label'][index] = df_label['label'].iloc[i]
-    except:
-        data['label'] = np.zeros_like(data['time'])
-    return data
-    
+#Processing
 def apply_filtering_on_signal(audio_data, lf=None, hf= None, backward = True):
     if lf and hf:
         b, a = signal.butter(4, [lf, hf], btype='band',fs=audio_data['fs'])
@@ -70,25 +75,19 @@ def apply_filtering_on_signal(audio_data, lf=None, hf= None, backward = True):
     return audio_data
 
 
-def preprocess_data(audio_data_file, audio_event_file):
-    data = extract_data_from_file(audio_data_file)
-    data = add_event_to_data(data,audio_event_file)
-    data_filtered = apply_filtering_on_signal(data, lf=120, hf= 1800, backward = True)
-    return data_filtered
-
-def epoching_based_on_label(data):
-    label_data_dict = dict()
-    label_list = np.unique(data['label'])
-    for label_ in label_list:
-        index_time = np.where(data['label'] == label_)[0]
-        if data['data'].ndim == 1:
-            label_data = data['data'][index_time]
-        elif data['data'].ndim == 2:
-            label_data = data['data'][:,index_time]
-        label_data_dict.update({label_: label_data})
-        
-    return label_data_dict
-
+def apply_stft(data,n_fft=2048,win_shift=None,center=False):
+    if not win_shift:
+        win_shift = n_fft/4
+    X = librosa.stft(data['data'],n_fft=n_fft, center=center)
+    Xdb = librosa.amplitude_to_db(abs(X))
+    times = librosa.times_like(Xdb,sr=data['fs'],n_fft=n_fft,hop_length=win_shift)
+    freqs = np.arange(0, 1 + n_fft / 2) * data['fs'] / n_fft
+    return {
+        'data': Xdb,
+        'time': times,
+        'freq':freqs,
+        'fs':data['fs']
+    }
 def apply_wavelets(data):
     cs1, f1 = utils.cwt2(data['data'], nv=12, sr=data['fs'],low_freq=60)
     data_wv = data.copy()
@@ -96,39 +95,13 @@ def apply_wavelets(data):
     data_wv['freq'] = f1[::-1]
     return data_wv
 
-def extract_features(data):
-    feature = {
-        'rmse': librosa.feature.rms(y=data['data']),
-        'chroma_stft': librosa.feature.chroma_stft(y=data['data'], sr=data['fs']),
-        'spec_cent': librosa.feature.spectral_centroid(y=data['data'], sr=data['fs']),
-        'spec_bw': librosa.feature.spectral_bandwidth(y=data['data'], sr=data['fs']),
-        'rolloff': librosa.feature.spectral_rolloff(y=data['data'], sr=data['fs']),
-        'zcr': librosa.feature.zero_crossing_rate(data['data']),
-        'mfcc': librosa.feature.mfcc(y=data['data'], sr=data['fs']),
-        }
-    feature['delta_mfcc'] = librosa.feature.delta(feature['mfcc'])
-    feature['delta2_mfcc'] = librosa.feature.delta(feature['mfcc'],order=2)
-    
-    list_feature_type = []
-    for k, v in feature.items():
-        list_feature_type.append([k]*v.shape[0])
-    list_feature_type = np.concatenate(list_feature_type)
-    return feature,list_feature_type
-    
-def prepare_features_ml(list_feature,mean_data=True):
-    df = pd.DataFrame(list_feature)
-    MAX_LEN = df['mfcc'].apply(lambda x : x.shape[1]).max()
-    df_concatenate = df.apply(lambda x: np.concatenate(x), axis=1)
-    if mean_data:
-        df_mean_overtime = df_concatenate.apply(lambda x: x.mean(axis=1))
-        features = np.array(df_mean_overtime.values.tolist())
-    else:
-        features = convert_list_toarray(df_concatenate,padding_len=MAX_LEN)
-    return features
-        
-def convert_list_toarray(list_data,padding_len):
-    for i,data_ in enumerate(list_data):
-        pad_width = padding_len - data_.shape[1]
-        list_data[i] = np.pad(data_, pad_width=((0, 0), (0, pad_width)), mode='constant')
-    array_data = np.stack(list_data)
-    return array_data
+def preprocess_data(audio_dict, annotations='text'):
+    data = extract_data_from_file(audio_dict['data'])
+    if annotations=='text':
+        df_label = event_manager.extract_label_from_text_file(audio_dict['text'])
+        data = event_manager.add_event_to_data(data,df_label)
+    elif annotations == 'event':
+        df_label = event_manager.extract_label_from_event_file(audio_dict['event'])
+        data = event_manager.add_event_to_data(data,df_label)
+    data_filtered = apply_filtering_on_signal(data, lf=120, hf= 1800, backward = True)
+    return data_filtered,df_label
