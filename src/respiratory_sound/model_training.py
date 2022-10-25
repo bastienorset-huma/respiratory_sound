@@ -1,10 +1,22 @@
 import pandas as pd
 import numpy as np
-import librosa
 from imblearn.over_sampling import SMOTE
 from sklearn.metrics import accuracy_score
 
+import epoching
 
+def prepare_data_time_for_modeling(epochs_list,label_list,list_audio_files):
+    epoch_final = epoching.convert_list_toarray(epochs_list)
+    list_label = []
+    list_file = []
+    for label_,file in zip(label_list,list_audio_files):
+        list_file.append([file]*len(label_))
+    df_label = pd.DataFrame(
+        {'label': np.concatenate(label_list), 
+        'file': np.concatenate(list_file)
+        })
+    return epoch_final, df_label
+    
 def prepare_data_for_modeling(epochs_list,label_list,list_audio_files):
     feature = []
     list_label = []

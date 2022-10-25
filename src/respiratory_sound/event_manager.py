@@ -28,22 +28,17 @@ def add_event_to_data(data,df_label):
         data['label'][index] = df_label['label'].iloc[i]
     return data
 
-def fill_gap_event_frame(audio_event_file,data_filtered):
-    try:
-        df_newlabel = pd.DataFrame()
-        df_label = extract_label_from_event_file(audio_event_file)
-        df_newlabel['start'] = pd.concat([df_label['start'],df_label['end']],axis=0)
-        df_label['label'] = df_label['label'].astype(int) 
-        df_newlabel = df_label.merge(df_newlabel,on='start',how='right')
-        df_newlabel = df_newlabel.sort_values('start').reset_index(drop=True)
-        df_newlabel['label'] = df_newlabel['label'].fillna(0)
-        df_newlabel['end'] = df_newlabel['start'].shift(-1)
-        df_newlabel.loc[len(df_newlabel.index)] = [0, df_newlabel['start'].iloc[0], 0]
-        df_newlabel['end'] = df_newlabel['end'].fillna(data_filtered['time'].max())
-        df_newlabel = df_newlabel.sort_values('start').reset_index(drop=True)
-    except:
-        df_newlabel = pd.DataFrame(columns=['start','end','label'])
-        df_newlabel.loc[len(df_newlabel.index)] = [0, data_filtered['time'].max(), 0]
+def fill_gap_event_frame(df_label,data_filtered):
+    df_newlabel = pd.DataFrame()
+    df_newlabel['start'] = pd.concat([df_label['start'],df_label['end']],axis=0)
+    df_label['label'] = df_label['label'].astype(int) 
+    df_newlabel = df_label.merge(df_newlabel,on='start',how='right')
+    df_newlabel = df_newlabel.sort_values('start').reset_index(drop=True)
+    df_newlabel['label'] = df_newlabel['label'].fillna(0)
+    df_newlabel['end'] = df_newlabel['start'].shift(-1)
+    df_newlabel.loc[len(df_newlabel.index)] = [0, df_newlabel['start'].iloc[0], 0]
+    df_newlabel['end'] = df_newlabel['end'].fillna(data_filtered['time'].max())
+    df_newlabel = df_newlabel.sort_values('start').reset_index(drop=True)
     return df_newlabel
 
 def segment_event_annotation(data,times):
