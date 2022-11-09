@@ -11,23 +11,6 @@ import event_manager
 
 SAMPLING_RATE_DEFAULT = 4000
 
-FEATURE_NAME = ['rmse', 'chroma_stft1', 'chroma_stft2', 'chroma_stft3', 'chroma_stft4',
-       'chroma_stft5', 'chroma_stft6', 'chroma_stft7', 'chroma_stft8',
-       'chroma_stft9', 'chroma_stft10', 'chroma_stft11', 'chroma_stft12',
-       'spec_cent', 'spec_bw', 'rolloff', 'zcr', 'mfcc1', 'mfcc2', 'mfcc3',
-       'mfcc4', 'mfcc5', 'mfcc6', 'mfcc7', 'mfcc8', 'mfcc9', 'mfcc10',
-       'mfcc11', 'mfcc12', 'mfcc13', 'mfcc14', 'mfcc15', 'mfcc16', 'mfcc17', 'mfcc18',
-       'mfcc19','mfcc20', 'delta_mfcc1', 'delta_mfcc2', 'delta_mfcc3', 'delta_mfcc4',
-       'delta_mfcc5', 'delta_mfcc6', 'delta_mfcc7', 'delta_mfcc8',
-       'delta_mfcc9', 'delta_mfcc10', 'delta_mfcc11', 'delta_mfcc12',
-       'delta_mfcc13', 'delta_mfcc14', 'delta_mfcc15', 'delta_mfcc16',
-       'delta_mfcc17', 'delta_mfcc18', 'delta_mfcc19', 'delta_mfcc20',
-       'delta2_mfcc1', 'delta2_mfcc2', 'delta2_mfcc3', 'delta2_mfcc4',
-       'delta2_mfcc5', 'delta2_mfcc6', 'delta2_mfcc7', 'delta2_mfcc8',
-       'delta2_mfcc9', 'delta2_mfcc10', 'delta2_mfcc11', 'delta2_mfcc12',
-       'delta2_mfcc13', 'delta2_mfcc14', 'delta2_mfcc15', 'delta2_mfcc16',
-       'delta2_mfcc17', 'delta2_mfcc18', 'delta2_mfcc19', 'delta2_mfcc20']
-
 # extract data and info
 def get_list_recording(audio_folder):
     list_files = []
@@ -74,6 +57,30 @@ def apply_filtering_on_signal(audio_data, lf=None, hf= None, backward = True):
     audio_data['data'] = data_filtered 
     return audio_data
 
+def apply_melspec(data,n_fft=2048,n_mel=None,win_shift=None,center=False,normalize=True):
+    if not win_shift:
+        win_shift = int(n_fft/4)
+    if n_mel:
+        X = librosa.feature.melspectrogram(y=data['data'], sr=data['fs'],n_fft=n_fft,hop_length=win_shift, n_mels=n_mel,center=center)
+    else:
+        X = librosa.feature.melspectrogram(y=data['data'], sr=data['fs'],n_fft=n_fft,hop_length=win_shift,center=center)
+    X = librosa.power_to_db(X, ref=np.max)
+
+    if normalize:
+        mel_min = np.min(X)
+        mel_max = np.max(X)
+        diff = mel_max - mel_min
+        if diff > 0:
+            X = (X - mel_min) / diff
+        else:
+            print('issue divide by 0')
+    
+    times = librosa.times_like(X,sr=data['fs'],n_fft=n_fft,hop_length=win_shift)
+    return {
+        'data': X,
+        'time': times,
+        'fs':data['fs']
+    }
 
 def apply_stft(data,n_fft=2048,win_shift=None,center=False):
     if not win_shift:
@@ -91,7 +98,7 @@ def apply_stft(data,n_fft=2048,win_shift=None,center=False):
 def apply_wavelets(data):
     cs1, f1 = utils.cwt2(data['data'], nv=12, sr=data['fs'],low_freq=60)
     data_wv = data.copy()
-    data_wv['data'] = np.log10(np.abs(cs1))
+    data_wv['data'] = 20*np.log10(np.abs(cs1))
     data_wv['freq'] = f1[::-1]
     return data_wv
 
@@ -101,7 +108,7 @@ def preprocess_data(audio_dict, annotations='text'):
         df_label = event_manager.extract_label_from_text_file(audio_dict['text'])
         data = event_manager.add_event_to_data(data,df_label)
     elif annotations == 'event':
-        df_label = event_manager.extract_label_from_event_file(audio_dict['event'])
+        df_label = event_manager.extract_label_from_event_file(audio_dict['event'],data)
         data = event_manager.add_event_to_data(data,df_label)
     data_filtered = apply_filtering_on_signal(data, lf=120, hf= 1800, backward = True)
     return data_filtered,df_label

@@ -5,33 +5,17 @@ from sklearn.metrics import accuracy_score
 
 import epoching
 
-def prepare_data_time_for_modeling(epochs_list,label_list,list_audio_files):
+def prepare_data_time_for_modeling(epochs_list,df_label_list):
     epoch_final = epoching.convert_list_toarray(epochs_list)
-    list_label = []
-    list_file = []
-    for label_,file in zip(label_list,list_audio_files):
-        list_file.append([file]*len(label_))
-    df_label = pd.DataFrame(
-        {'label': np.concatenate(label_list), 
-        'file': np.concatenate(list_file)
-        })
-    return epoch_final, df_label
+    df_all_label = pd.concat(df_label_list)
+    df_all_label = df_all_label.reset_index(drop=True)
+    return epoch_final, df_all_label
     
-def prepare_data_for_modeling(epochs_list,label_list,list_audio_files):
-    feature = []
-    list_label = []
-    list_file = []
-    for epochs_,label_,file in zip(epochs_list,label_list,list_audio_files):
-        feature.append(epochs_)
-        list_label.append(label_)
-        list_file.append([file]*epochs_.shape[0])
-        
-    X = np.concatenate(feature)
-    y = np.concatenate(list_label)
-    file_data = np.concatenate(list_file)
-    X = pd.DataFrame(X)
-    X['label'] = y
-    X['file'] = file_data
+def prepare_data_for_modeling(epochs_list,df_label_list):
+    df_all_label = pd.concat(df_label_list)
+    df_all_label = df_all_label.reset_index(drop=True)
+    X = np.concatenate(epochs_list)
+    X = pd.concat([pd.DataFrame(X),df_all_label],axis=1)
     X.columns = X.columns.astype(str)
     return X
 
