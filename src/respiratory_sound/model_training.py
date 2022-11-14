@@ -1,68 +1,11 @@
 import pandas as pd
+import pickle
 import numpy as np
+import sklearn
+
 from imblearn.over_sampling import SMOTE
 from sklearn.metrics import accuracy_score
-
-import epoching
-
-def prepare_data_time_for_modeling(epochs_list,df_label_list):
-    epoch_final = epoching.convert_list_toarray(epochs_list)
-    df_all_label = pd.concat(df_label_list)
-    df_all_label = df_all_label.reset_index(drop=True)
-    return epoch_final, df_all_label
-    
-def prepare_data_for_modeling(epochs_list,df_label_list):
-    df_all_label = pd.concat(df_label_list)
-    df_all_label = df_all_label.reset_index(drop=True)
-    X = np.concatenate(epochs_list)
-    X = pd.concat([pd.DataFrame(X),df_all_label],axis=1)
-    X.columns = X.columns.astype(str)
-    return X
-
-def extract_features(data):
-    feature = {
-        'rmse': librosa.feature.rms(y=data['data']),
-        'chroma_stft': librosa.feature.chroma_stft(y=data['data'], sr=data['fs']),
-        'spec_cent': librosa.feature.spectral_centroid(y=data['data'], sr=data['fs']),
-        'spec_bw': librosa.feature.spectral_bandwidth(y=data['data'], sr=data['fs']),
-        'rolloff': librosa.feature.spectral_rolloff(y=data['data'], sr=data['fs']),
-        'zcr': librosa.feature.zero_crossing_rate(data['data']),
-        'mfcc': librosa.feature.mfcc(y=data['data'], sr=data['fs']),
-        }
-    feature['delta_mfcc'] = librosa.feature.delta(feature['mfcc'])
-    feature['delta2_mfcc'] = librosa.feature.delta(feature['mfcc'],order=2)
-    
-    list_feature_type = []
-    for k, v in feature.items():
-        list_feature_type.append([k]*v.shape[0])
-    list_feature_type = np.concatenate(list_feature_type)
-    return feature,list_feature_type
-    
-def prepare_features_ml(list_feature,mean_data=True):
-    df = pd.DataFrame(list_feature)
-    MAX_LEN = df['mfcc'].apply(lambda x : x.shape[1]).max()
-    df_concatenate = df.apply(lambda x: np.concatenate(x), axis=1)
-    if mean_data:
-        df_mean_overtime = df_concatenate.apply(lambda x: x.mean(axis=1))
-        features = np.array(df_mean_overtime.values.tolist())
-    else:
-        features = convert_list_toarray(df_concatenate,padding_len=MAX_LEN)
-    return features
-        
-def prepare_feature_for_epoching(data_filtered):
-    feature,_ = extract_features(data_filtered)
-    data_feature = {
-            'data': np.concatenate([col for col in feature.values()]),
-            'time': librosa.times_like(feature['mfcc'], sr=data_filtered['fs']),
-        }
-    return data_feature
-
-def convert_list_toarray(list_data,padding_len):
-    for i,data_ in enumerate(list_data):
-        pad_width = padding_len - data_.shape[1]
-        list_data[i] = np.pad(data_, pad_width=((0, 0), (0, pad_width)), mode='constant')
-    array_data = np.stack(list_data)
-    return array_data
+from sklearn.utils import class_weight
 
 def apply_smote_for_balancing_dataset(data): 
     X = data.drop(columns='label').to_numpy()
@@ -88,3 +31,39 @@ def classification_report_with_accuracy_score(y_true, y_pred):
     originalclass.extend(y_true)
     predictedclass.extend(y_pred)
     return accuracy_score(y_true, y_pred) # return accuracy score
+
+
+def get_class_weight(y,return_dict=False):
+    classes_weight = class_weight.compute_sample_weight(class_weight='balanced',y=y)
+    if return_dict:
+        classes_weight = dict(zip(np.unique(y), classes_weight))
+    return classes_weight
+
+def structure_data_for_modeling(file,classes=[0,1,2]):    
+    with open(file, 'rb') as handle:
+        data = pickle.load(handle)
+        
+    X,df_label = data['feature'],data['label']
+    df_label = df_label[df_label.label.isin(classes)]
+    X=X[df_label.index.tolist(),:,:]
+    if classes==[0,2]:
+        df_label['label'] = df_label['label'].replace(2,1)
+    return X, df_label
+    
+def do_train_test_split_based_onsubject(X,df_label,reshape_data=True,n_subject=100):
+    df_label['Subject_ID'] = df_label['file'].str.split('_').str[0]
+    SubjectID = sklearn.utils.shuffle(df_label.Subject_ID.unique(),random_state=42)
+    SubjectID_train = SubjectID[:n_subject]
+    df_label['train_test_split'] = np.where(df_label['Subject_ID'].isin(SubjectID_train),'train','test')
+    index_train= np.where(df_label.train_test_split == 'train')[0]
+    index_test = np.where(df_label.train_test_split == 'test')[0]
+    X_train = X[index_train,:]
+    X_test = X[index_test,:]
+    y_train = df_label.loc[df_label['train_test_split'] == 'train','label'].to_numpy()
+    y_test = df_label.loc[df_label['train_test_split'] == 'test','label'].to_numpy()
+    
+    if reshape_data:
+        X_train = np.reshape(X_train,(X_train.shape[0],X_train.shape[1]*X_train.shape[2]))
+        X_test = np.reshape(X_test,(X_test.shape[0],X_test.shape[1]*X_test.shape[2]))
+
+    return X_train,X_test,y_train,y_test,df_label

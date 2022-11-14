@@ -10,6 +10,7 @@ def extract_label_from_text_file(text_file):
     df_label['label'] = np.where(df_label[['crackle','wheeze']].sum(axis=1)==2,'both',df_label['label'])
     df_label.drop(columns=['crackle','wheeze'],inplace=True)
     df_label['label'] = df_label['label'].map({'wheeze':1,'crackle':2,'both':3,'normal':0})
+    df_label['file'] = text_file.split('/')[-1].split('.')[0]
     return df_label
 
 def extract_label_from_event_file(audio_event_file,data):
@@ -24,6 +25,7 @@ def extract_label_from_event_file(audio_event_file,data):
           'end': [data['time'][-1]],
         'label':[0]  
         })
+    df_label['file'] = audio_event_file.split('/')[-1].split('_events')[0]
     return df_label
 
 def add_event_to_data(data,df_label):
@@ -42,13 +44,14 @@ def fill_gap_event_frame(df_label,data_filtered):
     df_newlabel['label'] = df_newlabel['label'].fillna(0)
     df_newlabel['end'] = df_newlabel['start'].shift(-1)
     if df_newlabel['start'].iloc[0] > 0:
-        df_newlabel.loc[len(df_newlabel.index)] = [0, df_newlabel['start'].iloc[0], 0]
+        df_newlabel.loc[len(df_newlabel.index)] = [0, df_newlabel['start'].iloc[0], 0,df_newlabel['file'].iloc[0]]
 
     if df_newlabel['end'].iloc[0] < data_filtered['time'].max():
         df_newlabel['end'] = df_newlabel['end'].fillna(data_filtered['time'].max())
     df_newlabel = df_newlabel.sort_values('start').reset_index(drop=True)
     df_newlabel['duration'] = df_newlabel['end'] - df_newlabel['start']
     df_newlabel = df_newlabel[df_newlabel['duration'] > 0] 
+    df_newlabel['file'] = df_newlabel['file'].iloc[0]
     return df_newlabel.drop(columns=['duration'])
 
 def concat_annotation(df_label):
@@ -62,7 +65,6 @@ def concat_annotation(df_label):
         df_label_new['end'].iloc[-1]= df_label['end'].iloc[-1]
         df_label_new['label'] = df_label['label']
     else: 
-        print('1 label')
         df_label_new =  pd.DataFrame({
             'start': [df_label['start'].iloc[0]],
             'end':  [df_label['end'].iloc[-1]],
@@ -70,7 +72,7 @@ def concat_annotation(df_label):
         })
     return df_label_new
 
-def segment_event_annotation(data,win_len=1,win_shift=0.5,threshold_class=[1,0.75,0.75]):
+def segment_event_annotation(data,win_len=1,win_shift=0.5,threshold_class=[1,None,None]):
     def lambda_count_label(row):
         unique, counts = np.unique(row, return_counts=True)
         return dict(zip(unique, counts))
@@ -99,13 +101,16 @@ def segment_event_annotation(data,win_len=1,win_shift=0.5,threshold_class=[1,0.7
     df_segment[class_columns] = df_segment[class_columns].div(df_segment['total'],axis=0)
     df_segment = df_segment.drop(columns='total')
     for class_ in class_columns:
-        df_segment[class_] = np.where(df_segment[class_]>=threshold_class[class_],1,0)
+        if threshold_class[class_]: 
+            df_segment[class_] = np.where(df_segment[class_]>=threshold_class[class_],1,0)
+        else:
+            df_segment[class_] = np.where(df_segment[class_]!=0,1,0)
     df_segment['tot_label'] = df_segment[class_columns].sum(axis=1)
     df_segment = df_segment[df_segment.tot_label==1]
     df_segment['label'] = df_segment[class_columns].idxmax(axis=1)
     df_segment = df_segment.drop(columns=class_columns)
     df_segment = df_segment.drop(columns=['tot_label'])
-    return df_segment
+    return df_segment.reset_index(drop=True)
     
 
 def segment_event_annotation_noverlap(df_label,win_len=1,win_shift=0.5):

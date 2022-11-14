@@ -32,7 +32,9 @@ def load_file_from_recording_name(audio_folder,audio_subject):
             'text':audio_text_file}
     
 def extract_data_from_file(file,fs= SAMPLING_RATE_DEFAULT):
+    
     x_data, sr = librosa.load(file, sr=fs)
+    
     audio_data = {
         'data': x_data,
         'time': np.linspace(0,len(x_data)/sr,len(x_data))
@@ -100,15 +102,26 @@ def apply_wavelets(data):
     data_wv = data.copy()
     data_wv['data'] = 20*np.log10(np.abs(cs1))
     data_wv['freq'] = f1[::-1]
-    return data_wv
+    return data_wv,f1
 
-def preprocess_data(audio_dict, annotations='text'):
-    data = extract_data_from_file(audio_dict['data'])
+def apply_wavelets_on_epochs(epochs_data,fs=4000,normalize=True):
+    wv_data = []
+    for i in range(epochs_data.shape[0]):
+        y = epochs_data[i,:]
+        cs1, f1 = utils.cwt2(y, nv=12, sr=fs)
+        xx = 20*np.log10(np.abs(cs1))
+        if normalize:
+            xx = xx-xx.min()/(xx.max() - xx.min())
+        wv_data.append(xx)
+    return np.stack(wv_data),f1
+
+def preprocess_data(audio_dict, fs=SAMPLING_RATE_DEFAULT,lf=120,hf=1800, annotations='text'):
+    data = extract_data_from_file(audio_dict['data'],fs)
     if annotations=='text':
         df_label = event_manager.extract_label_from_text_file(audio_dict['text'])
         data = event_manager.add_event_to_data(data,df_label)
     elif annotations == 'event':
         df_label = event_manager.extract_label_from_event_file(audio_dict['event'],data)
         data = event_manager.add_event_to_data(data,df_label)
-    data_filtered = apply_filtering_on_signal(data, lf=120, hf= 1800, backward = True)
+    data_filtered = apply_filtering_on_signal(data, lf=lf, hf= hf, backward = True)
     return data_filtered,df_label
