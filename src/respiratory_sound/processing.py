@@ -104,15 +104,38 @@ def apply_wavelets(data):
     data_wv['freq'] = f1[::-1]
     return data_wv,f1
 
-def apply_wavelets_on_epochs(epochs_data,fs=4000,normalize=True):
+def min_max_normalization(X):
+    mel_min, mel_max = np.min(X), np.max(X)
+    diff = mel_max - mel_min
+    X = (X - mel_min) / diff
+    return X
+
+def apply_sftf_on_epochs(epochs_data,n_fft=512,fs=4000,hop_length=128,normalize=True):
+    X = np.abs(librosa.stft(y=epochs_data,n_fft=n_fft,hop_length=hop_length))
+    f = librosa.fft_frequencies(sr=fs, n_fft=n_fft)
+    
+    if normalize:
+        X = min_max_normalization(X)
+    return X, f 
+
+def apply_mel_on_epochs(epochs_data,n_fft=512,fs=4000,hop_length=128,normalize=True):
+    X = librosa.feature.melspectrogram(y=epochs_data,n_fft=n_fft,hop_length=hop_length)
+    X = librosa.power_to_db(X, ref=np.max)
+    f = librosa.fft_frequencies(sr=fs, n_fft=n_fft)
+    
+    if normalize:
+        X = min_max_normalization(X)
+    return X, f 
+
+def apply_wavelets_on_epochs(epochs_data,fs=4000,low_freq=120,normalize=True):
     wv_data = []
     for i in range(epochs_data.shape[0]):
         y = epochs_data[i,:]
-        cs1, f1 = utils.cwt2(y, nv=12, sr=fs)
-        xx = 20*np.log10(np.abs(cs1))
+        cs1, f1 = utils.cwt2(y, nv=12, sr=fs, low_freq=low_freq)
+        X = 20*np.log10(np.abs(cs1))
         if normalize:
-            xx = xx-xx.min()/(xx.max() - xx.min())
-        wv_data.append(xx)
+            X = min_max_normalization(X)
+        wv_data.append(X)
     return np.stack(wv_data),f1
 
 def preprocess_data(audio_dict, fs=SAMPLING_RATE_DEFAULT,lf=120,hf=1800, annotations='text'):

@@ -1,4 +1,5 @@
 
+import librosa
 import pickle 
 import sklearn 
 import pandas as pd
@@ -31,7 +32,6 @@ def select_nsample_normal(df_label,max_sample=50):
     if len(df_label.label.unique()) > 1:
         max_sample = df_label.label[df_label.label!=0].value_counts().max()
         df_label_0 = df_label[df_label.label==0].iloc[:max_sample]
-        max_sample=df_label.label[df_label.label!=0].value_counts().max()
         df_label_o = df_label[df_label.label!=0]
         df_label_list = pd.concat([df_label_o,df_label_0],axis=0)
     else:
